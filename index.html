@@ -24,6 +24,7 @@
     #signalHistory, #tradeHistory { background: #fff; padding: 1rem; border-radius: 4px; box-shadow: 0 0 4px rgba(0,0,0,0.1); }
     #signalHistory { max-height: 240px; overflow-y: auto; }
     #tradeHistory  { max-height: 200px; overflow-y: auto; }
+    #signalHistory h3, #tradeHistory h3 { margin-top: 0; }
     #signalList { list-style: none; padding: 0; margin: 0.5rem 0; }
     #signalList li { padding: 6px; margin: 4px 0; border-radius: 4px; color: #fff; font-weight: bold; }
     #signalList li.buy  { background: #0a662a; }
@@ -50,7 +51,9 @@
     <div id="chart-container"><div id="chart"></div></div>
     <div id="side-panel">
       <div id="signalHistory">
-        <h3>Sinais Recentes (24h)</h3>
+        <h3>Sinais últimas 24h (backtest)</h3>
+        <pre id="backtestResult">Carregando...</pre>
+        <h3>Sinais Recentes</h3>
         <ul id="signalList"></ul>
       </div>
       <div id="tradeHistory">
@@ -68,55 +71,60 @@
   <div id="result"></div>
 
   <script>
-  // --- Setup Notifications & Discord Webhook ---
+  // -- suppress storage errors
   window.addEventListener('unhandledrejection', e=>e.preventDefault());
   window.addEventListener('error', e=>{ if(e.message.includes('storage')) e.preventDefault(); });
 
+  // -- Discord webhook
   const discordWebhook = 'https://discord.com/api/webhooks/1373378771716935781/KNHwIWA-sanRYKL_a9EeTP7Utt2uTFCdUbEXO22nHGeK6c4YlZ8HWfeIL_Ys-mJyFH0h';
   async function notifyDiscord(msg){
     try {
-      const res = await fetch(discordWebhook,{
+      const res = await fetch(discordWebhook, {
         method:'POST',
-        headers:{'Content-Type':'application/json'},
+        headers:{ 'Content-Type':'application/json' },
         body: JSON.stringify({ content: msg })
       });
       console.log('Discord enviado:', msg, 'status', res.status);
-    } catch(err){ console.error('Erro Discord:', err); }
+    } catch(err){
+      console.error('Erro Discord:', err);
+    }
   }
-  
+
   if('Notification' in window) Notification.requestPermission();
 
-  // --- DOM References ---
-  const btnLong    = document.getElementById('btnLong'),
-        btnShort   = document.getElementById('btnShort'),
-        btnExit    = document.getElementById('btnExit'),
-        btnTest    = document.getElementById('btnTest'),
-        btnDiscord = document.getElementById('btnDiscord');
-  const entryInfo      = document.getElementById('entryInfo'),
-        signalEl       = document.getElementById('signal'),
-        justificationEl= document.getElementById('justification'),
-        stopEl         = document.getElementById('stopSuggestion'),
-        resultEl       = document.getElementById('result');
-  const signalList     = document.getElementById('signalList'),
-        tradeBody      = document.querySelector('#tradeTable tbody'),
-        countdownEl    = document.getElementById('countdown'),
-        chartDiv       = document.getElementById('chart');
+  // -- DOM refs
+  const btnLong     = document.getElementById('btnLong'),
+        btnShort    = document.getElementById('btnShort'),
+        btnExit     = document.getElementById('btnExit'),
+        btnTest     = document.getElementById('btnTest'),
+        btnDiscord  = document.getElementById('btnDiscord');
+  const entryInfo       = document.getElementById('entryInfo'),
+        signalEl        = document.getElementById('signal'),
+        justificationEl = document.getElementById('justification'),
+        stopEl          = document.getElementById('stopSuggestion'),
+        resultEl        = document.getElementById('result');
+  const backtestEl   = document.getElementById('backtestResult'),
+        signalList    = document.getElementById('signalList'),
+        tradeBody     = document.querySelector('#tradeTable tbody'),
+        countdownEl   = document.getElementById('countdown'),
+        chartDiv      = document.getElementById('chart');
 
-  // --- Persistence Fallback ---
+  // -- storage fallback
   let storage = { getItem:()=>null, setItem:()=>{}, removeItem:()=>{} };
-  try{ localStorage.setItem('_',1); localStorage.removeItem('_'); storage = localStorage; }
-  catch{}
+  try{ localStorage.setItem('_',1); localStorage.removeItem('_'); storage = localStorage; }catch{}
 
-  // --- State ---
+  // -- state
   let entry = null;
   try{ entry = JSON.parse(storage.getItem('tradeEntry')); }catch{}
   const trades  = [], signals = [];
   let latestSignal = null, latestPrice = null;
 
   function updateEntryInfo(){
-    entry
-      ? entryInfo.textContent = `Entrada ${entry.side} @ ${entry.price.toFixed(2)}`
-      : entryInfo.textContent = 'Nenhuma entrada marcada';
+    if(entry){
+      entryInfo.textContent = `Entrada ${entry.side} @ ${entry.price.toFixed(2)}`;
+    } else {
+      entryInfo.textContent = 'Nenhuma entrada marcada';
+    }
   }
   updateEntryInfo();
 
@@ -144,7 +152,7 @@
     });
   }
 
-  // --- Indicators ---
+  // -- indicators
   const calcSMA = (a,p)=> a.map((_,i,A)=> i<p-1 ? null : A.slice(i-p+1,i+1).reduce((s,v)=>s+v,0)/p );
   function calcRSI(a,p){
     const g=[], l=[];
@@ -180,7 +188,7 @@
     }
     return [up,m,dn];
   }
-  const calcEMA = (a,p) => {
+  const calcEMA = (a,p)=>{
     const k = 2/(p+1), o = [];
     a.forEach((v,i)=> o.push(i ? v*k + o[i-1]*(1-k) : v));
     return o;
@@ -193,7 +201,7 @@
     return [macdLine, macdSig];
   }
 
-  // --- Historical Data Arrays ---
+  // -- data arrays
   const times = [], opens = [], highs = [], lows = [], closes = [];
   let sma5=[], sma10=[], rsiArr=[], bbUp=[], bbMid=[], bbDown=[], macdLine=[], macdSig=[];
 
@@ -219,20 +227,17 @@
   }
 
   function updateSignalDisplay(){
-    // exibe no topo
+    // exibe sinal
     signalEl.textContent = latestSignal ? `Sinal: ${latestSignal}` : 'Sem sinal';
     signalEl.className   = latestSignal==='COMPRA' ? 'buy' : latestSignal==='VENDA' ? 'sell' : '';
 
-    // registra histórico de sinais
     if(latestSignal){
       const t = new Date().toLocaleTimeString();
       signals.unshift({ time:t, side:latestSignal });
       renderSignals();
-      // notificação navegador
       if(Notification.permission==='granted'){
         new Notification(`Sinal: ${latestSignal}`,{ body: justificationEl.textContent });
       }
-      // envia ao Discord
       notifyDiscord(`SINAL ${latestSignal}\n${justificationEl.textContent}`);
     }
 
@@ -240,7 +245,7 @@
     if(entry){
       const idx = times.length-2;
       const sp  = entry.side==='COMPRA' ? bbDown[idx] : bbUp[idx];
-      stopEl.textContent = `Stop sugerido: ${sp ? sp.toFixed(2) : '-'}`;
+      stopEl.textContent = `Stop sugerido: ${sp?sp.toFixed(2):'-'}`;
     } else {
       stopEl.textContent = 'Stop sugerido: -';
     }
@@ -256,9 +261,9 @@
     countdownEl.textContent = `Próximo candle em: ${m}:${s}`;
   },1000);
 
-  // initial fetch + backtest (24h)
+  // initial fetch + backtest
   (async()=>{
-    // backtest simples 24h
+    // backtest
     try{
       const r = await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=15m&limit=96'),
             d = await r.json(),
@@ -271,14 +276,18 @@
         if(s5[i-1]!=null){
           if(s5[i-1]<=s10[i-1]&& rs[i-1]<70 && C[i-1]>dd[i-1] && mL[i-1]>mS[i-1] && s5[i]>s10[i])
             out.push(`${T[i]}: COMPRA`);
-          else if(s5[i-1]>=s10[i-1]&&rs[i-1]>30 && C[i-1]<uu[i-1] && mL[i-1]<mS[i-1] && s5[i]<s10[i])
+          else if(s5[i-1]>=s10[i-1]&& rs[i-1]>30 && C[i-1]<uu[i-1] && mL[i-1]<mS[i-1] && s5[i]<s10[i])
             out.push(`${T[i]}: VENDA`);
         }
       }
-      // podemos exibir se quiser num console ou div separada...
-      console.log('Sinais últimas 24h:', out);
-    }catch{}
-    // preenche 96 candles iniciais
+      backtestEl.textContent = out.length
+        ? `Sinais últimas 24h:\n${out.join('\n')}`
+        : 'Nenhum sinal nas últimas 24h';
+    }catch{
+      backtestEl.textContent = 'Erro no backtest';
+    }
+
+    // carrega candles iniciais
     try{
       const r = await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=15m&limit=96'),
             d = await r.json();
@@ -289,20 +298,20 @@
         lows.push(+x[3]);
         closes.push(+x[4]);
       });
-      sma5    = calcSMA(closes,5);
-      sma10   = calcSMA(closes,10);
-      rsiArr  = calcRSI(closes,14);
+      sma5   = calcSMA(closes,5);
+      sma10  = calcSMA(closes,10);
+      rsiArr = calcRSI(closes,14);
       [bbUp, bbMid, bbDown] = calcBB(closes,20,2);
       [macdLine, macdSig]   = calcMACD(closes,12,26,9);
       latestPrice = closes.at(-1);
 
       // sinal inicial
-      const i=closes.length-1, j=i-1;
+      const i = closes.length-1, j = i-1;
       latestSignal = null;
       if(sma5[j]!=null){
-        if(sma5[j]<=sma10[j] && rsiArr[j]<70 && closes[j]>bbDown[j] && macdLine[j]>macdSig[j] && sma5[i]>sma10[i])
+        if(sma5[j]<=sma10[j]&& rsiArr[j]<70&& closes[j]>bbDown[j]&& macdLine[j]>macdSig[j]&& sma5[i]>sma10[i])
           latestSignal='COMPRA';
-        else if(sma5[j]>=sma10[j] && rsiArr[j]>30 && closes[j]<bbUp[j] && macdLine[j]<macdSig[j] && sma5[i]<sma10[i])
+        else if(sma5[j]>=sma10[j]&& rsiArr[j]>30&& closes[j]<bbUp[j]&& macdLine[j]<macdSig[j]&& sma5[i]<sma10[i])
           latestSignal='VENDA';
       }
       updateSignalDisplay();
@@ -310,32 +319,33 @@
     }catch{
       signalEl.textContent = 'Erro ao carregar dados';
     }
+
+    // **garante que o histórico seja exibido, mesmo vazio**
+    renderTrades();
+    renderSignals();
   })();
 
   // WebSocket
   const ws = new WebSocket('wss://fstream.binance.com/ws/btcusdt@kline_15m');
-  ws.onmessage = ev => {
+  ws.onmessage = ev =>{
     const k   = JSON.parse(ev.data).k;
     const fin = k.x;
     const idx = times.length - 1;
 
     if(fin){
-      // vela fechada: shift + push
-      if(times.length >= 96){
+      if(times.length>=96){
         times.shift(); opens.shift(); highs.shift(); lows.shift(); closes.shift();
         rsiArr.shift(); bbUp.shift(); bbMid.shift(); bbDown.shift(); macdLine.shift(); macdSig.shift();
       }
       times.push(new Date(k.t));
       opens.push(+k.o); highs.push(+k.h); lows.push(+k.l); closes.push(+k.c);
 
-      // recalcular indicadores
       sma5    = calcSMA(closes,5);
       sma10   = calcSMA(closes,10);
       rsiArr  = calcRSI(closes,14);
-      [bbUp, bbMid, bbDown] = calcBB(closes,20,2);
-      [macdLine, macdSig]   = calcMACD(closes,12,26,9);
+      [bbUp,bbMid,bbDown] = calcBB(closes,20,2);
+      [macdLine,macdSig]  = calcMACD(closes,12,26,9);
 
-      // detectar sinal
       const ii = closes.length-1, jj=ii-1;
       latestSignal = null;
       if(sma5[jj]!=null){
@@ -349,31 +359,29 @@
         }
       }
 
-      // exibir e notificar **apenas aqui**
       if(!entry){
         updateSignalDisplay();
       }
       redraw();
     } else {
-      // vela ainda não fechou: só atualiza candlestick em tempo real
-      times[idx]   = new Date(k.t);
-      opens[idx]   = +k.o;
-      highs[idx]   = +k.h;
-      lows[idx]    = +k.l;
-      closes[idx]  = +k.c;
+      times[idx]  = new Date(k.t);
+      opens[idx]  = +k.o;
+      highs[idx]  = +k.h;
+      lows[idx]   = +k.l;
+      closes[idx] = +k.c;
       redraw();
     }
   };
 
   // botões
   btnLong.onclick = ()=>{
-    entry = { side:'COMPRA', price: latestPrice };
+    entry = { side:'COMPRA', price:latestPrice };
     storage.setItem('tradeEntry', JSON.stringify(entry));
     updateEntryInfo();
     updateSignalDisplay();
   };
   btnShort.onclick = ()=>{
-    entry = { side:'VENDA', price: latestPrice };
+    entry = { side:'VENDA', price:latestPrice };
     storage.setItem('tradeEntry', JSON.stringify(entry));
     updateEntryInfo();
     updateSignalDisplay();
@@ -400,14 +408,13 @@
   };
   btnTest.onclick = ()=>{
     if(Notification.permission==='granted'){
-      new Notification('Teste de Notificação',{ body:'Teste OK!' });
+      new Notification('Teste',{ body:'Teste OK!' });
     } else {
       Notification.requestPermission();
     }
   };
-  btnDiscord.onclick = ()=>{
-    notifyDiscord('Teste de Discord!');
-  };
+  btnDiscord.onclick = ()=> notifyDiscord('Teste de Discord!');
+
   </script>
 </body>
 </html>
