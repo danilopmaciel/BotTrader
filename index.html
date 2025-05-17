@@ -11,26 +11,24 @@
     #countdown { font-size: 0.9rem; color: #eee; }
     .controls { text-align: center; margin: 1rem 0; }
     .controls button { margin: 0 0.5rem; padding: 0.5rem 1rem; border: none; border-radius: 4px; color: #fff; cursor: pointer; }
-    #btnLong { background: #0a662a; }
-    #btnShort { background: #a10a0a; }
-    #btnExit { background: #555; }
-    #btnTest { background: #0066cc; }
-    #btnDiscord { background: #7289da; } /* Discord blue */
+    #btnLong    { background: #0a662a; }
+    #btnShort   { background: #a10a0a; }
+    #btnExit    { background: #555; }
+    #btnTest    { background: #0066cc; }
+    #btnDiscord { background: #7289da; }
     #entryInfo, #signal, #justification, #stopSuggestion, #result { text-align: center; font-weight: bold; margin: 0.5rem 0; }
     #layout { display: flex; width: 95%; max-width: 1600px; margin: 0 auto; padding: 0 1rem; gap: 1rem; }
     #chart-container { flex: 5; }
     #chart { width: 100%; height: 600px; }
-    #side-panel { flex: 1; min-width: 350px; max-width: 300px; display: flex; flex-direction: column; gap: 1rem; }
+    #side-panel { flex: 1; min-width: 300px; max-width: 350px; display: flex; flex-direction: column; gap: 1rem; }
     #signalHistory, #tradeHistory { background: #fff; padding: 1rem; border-radius: 4px; box-shadow: 0 0 4px rgba(0,0,0,0.1); }
-    #signalHistory { min-height: 300px; }
-    #tradeHistory { min-height: 300px; }
-    #signalHistory h3, #tradeHistory h3 { margin-top: 0; }
-    #backtestResult { font-size: 0.9rem; white-space: pre-wrap; margin: 0.5rem 0; }
-    #signalList { list-style: none; padding: 0; max-height: 200px; overflow-y: auto; margin: 0.5rem 0; }
+    #signalHistory { max-height: 240px; overflow-y: auto; }
+    #tradeHistory  { max-height: 200px; overflow-y: auto; }
+    #signalList { list-style: none; padding: 0; margin: 0.5rem 0; }
     #signalList li { padding: 6px; margin: 4px 0; border-radius: 4px; color: #fff; font-weight: bold; }
-    #signalList li.buy { background: #0a662a; }
+    #signalList li.buy  { background: #0a662a; }
     #signalList li.sell { background: #a10a0a; }
-    #tradeTable { width: 100%; border-collapse: collapse; }
+    #tradeTable { width: 100%; border-collapse: collapse; min-width: 300px; }
     #tradeTable th, #tradeTable td { border: 1px solid #ccc; padding: 4px; text-align: center; }
     #tradeTable th { background: #eee; }
   </style>
@@ -40,7 +38,6 @@
     <h1>BTC/USDT FUTURES (15m) — Realtime</h1>
     <div id="countdown">Próximo candle em: --:--</div>
   </header>
-
   <div class="controls">
     <button id="btnLong">Entrada COMPRA</button>
     <button id="btnShort">Entrada VENDA</button>
@@ -48,437 +45,369 @@
     <button id="btnTest">Testar Notificação</button>
     <button id="btnDiscord">Testar Discord</button>
   </div>
-
   <div id="entryInfo">Nenhuma entrada marcada</div>
-
   <div id="layout">
-    <div id="chart-container">
-      <div id="chart"></div>
-    </div>
+    <div id="chart-container"><div id="chart"></div></div>
     <div id="side-panel">
       <div id="signalHistory">
         <h3>Sinais Recentes (24h)</h3>
-        <div id="backtestResult">Carregando sinais...</div>
         <ul id="signalList"></ul>
       </div>
       <div id="tradeHistory">
         <h3>Histórico de Trades</h3>
         <table id="tradeTable">
-          <thead>
-            <tr><th>Hora</th><th>Side</th><th>Entrada</th><th>Saída</th><th>% Gain</th></tr>
-          </thead>
+          <thead><tr><th>Hora</th><th>Side</th><th>Entrada</th><th>Saída</th><th>% Gain</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
     </div>
   </div>
-
   <div id="signal">Aguardando sinal...</div>
   <div id="justification"></div>
   <div id="stopSuggestion"></div>
   <div id="result"></div>
 
   <script>
-    // Suprimir erros de storage
-    window.addEventListener('unhandledrejection', e => e.preventDefault());
-    window.addEventListener('error', e => { 
-      if (e.message && e.message.includes('storage')) e.preventDefault();
+  // --- Setup Notifications & Discord Webhook ---
+  window.addEventListener('unhandledrejection', e=>e.preventDefault());
+  window.addEventListener('error', e=>{ if(e.message.includes('storage')) e.preventDefault(); });
+
+  const discordWebhook = 'https://discord.com/api/webhooks/1373378771716935781/KNHwIWA-sanRYKL_a9EeTP7Utt2uTFCdUbEXO22nHGeK6c4YlZ8HWfeIL_Ys-mJyFH0h';
+  async function notifyDiscord(msg){
+    try {
+      const res = await fetch(discordWebhook,{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ content: msg })
+      });
+      console.log('Discord enviado:', msg, 'status', res.status);
+    } catch(err){ console.error('Erro Discord:', err); }
+  }
+  
+  if('Notification' in window) Notification.requestPermission();
+
+  // --- DOM References ---
+  const btnLong    = document.getElementById('btnLong'),
+        btnShort   = document.getElementById('btnShort'),
+        btnExit    = document.getElementById('btnExit'),
+        btnTest    = document.getElementById('btnTest'),
+        btnDiscord = document.getElementById('btnDiscord');
+  const entryInfo      = document.getElementById('entryInfo'),
+        signalEl       = document.getElementById('signal'),
+        justificationEl= document.getElementById('justification'),
+        stopEl         = document.getElementById('stopSuggestion'),
+        resultEl       = document.getElementById('result');
+  const signalList     = document.getElementById('signalList'),
+        tradeBody      = document.querySelector('#tradeTable tbody'),
+        countdownEl    = document.getElementById('countdown'),
+        chartDiv       = document.getElementById('chart');
+
+  // --- Persistence Fallback ---
+  let storage = { getItem:()=>null, setItem:()=>{}, removeItem:()=>{} };
+  try{ localStorage.setItem('_',1); localStorage.removeItem('_'); storage = localStorage; }
+  catch{}
+
+  // --- State ---
+  let entry = null;
+  try{ entry = JSON.parse(storage.getItem('tradeEntry')); }catch{}
+  const trades  = [], signals = [];
+  let latestSignal = null, latestPrice = null;
+
+  function updateEntryInfo(){
+    entry
+      ? entryInfo.textContent = `Entrada ${entry.side} @ ${entry.price.toFixed(2)}`
+      : entryInfo.textContent = 'Nenhuma entrada marcada';
+  }
+  updateEntryInfo();
+
+  function renderTrades(){
+    tradeBody.innerHTML = '';
+    trades.forEach(t=>{
+      const r = document.createElement('tr');
+      r.innerHTML = `
+        <td>${t.time}</td>
+        <td>${t.side}</td>
+        <td>${t.entry.toFixed(2)}</td>
+        <td>${t.exit.toFixed(2)}</td>
+        <td>${t.profitPct.toFixed(2)}%</td>`;
+      tradeBody.appendChild(r);
     });
+  }
 
-    (async () => {
-      // === CONFIGURAÇÕES DE NOTIFICAÇÃO ===
-      const discordWebhookURL = 'https://discord.com/api/webhooks/1373378771716935781/KNHwIWA-sanRYKL_a9EeTP7Utt2uTFCdUbEXO22nHGeK6c4YlZ8HWfeIL_Ys-mJyFH0h';
-      async function notifyDiscord(msg) {
-        try {
-          await fetch(discordWebhookURL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: msg })
-          });
-          console.log('Discord enviado:', msg);
-        } catch (err) {
-          console.error('Erro Discord:', err);
+  function renderSignals(){
+    signalList.innerHTML = '';
+    signals.forEach(s=>{
+      const li = document.createElement('li');
+      li.textContent = `${s.time} – ${s.side}`;
+      li.className = s.side==='COMPRA' ? 'buy' : 'sell';
+      signalList.appendChild(li);
+    });
+  }
+
+  // --- Indicators ---
+  const calcSMA = (a,p)=> a.map((_,i,A)=> i<p-1 ? null : A.slice(i-p+1,i+1).reduce((s,v)=>s+v,0)/p );
+  function calcRSI(a,p){
+    const g=[], l=[];
+    for(let i=1;i<a.length;i++){
+      const d = a[i]-a[i-1];
+      g.push(d>0?d:0);
+      l.push(d<0?Math.abs(d):0);
+    }
+    let ag = g.slice(0,p).reduce((s,v)=>s+v,0)/p;
+    let al = l.slice(0,p).reduce((s,v)=>s+v,0)/p;
+    const out = Array(p).fill(null);
+    out[p] = 100 - (100/(1+ag/al));
+    for(let i=p+1;i<a.length;i++){
+      ag = (ag*(p-1)+g[i-1])/p;
+      al = (al*(p-1)+l[i-1])/p;
+      out[i] = 100 - (100/(1+ag/al));
+    }
+    return out;
+  }
+  function calcBB(a,p,k){
+    const up=[], m=[], dn=[];
+    for(let i=0;i<a.length;i++){
+      if(i<p-1){
+        up.push(null); m.push(null); dn.push(null);
+      } else {
+        const s = a.slice(i-p+1,i+1);
+        const mean = s.reduce((x,y)=>x+y,0)/p;
+        const std  = Math.sqrt(s.reduce((x,y)=>x+Math.pow(y-mean,2),0)/p);
+        m.push(mean);
+        up.push(mean + k*std);
+        dn.push(mean - k*std);
+      }
+    }
+    return [up,m,dn];
+  }
+  const calcEMA = (a,p) => {
+    const k = 2/(p+1), o = [];
+    a.forEach((v,i)=> o.push(i ? v*k + o[i-1]*(1-k) : v));
+    return o;
+  };
+  function calcMACD(a,f,s,sg){
+    const ef = calcEMA(a,f),
+          es = calcEMA(a,s),
+          macdLine = ef.map((v,i)=>v-es[i]),
+          macdSig  = calcEMA(macdLine,sg);
+    return [macdLine, macdSig];
+  }
+
+  // --- Historical Data Arrays ---
+  const times = [], opens = [], highs = [], lows = [], closes = [];
+  let sma5=[], sma10=[], rsiArr=[], bbUp=[], bbMid=[], bbDown=[], macdLine=[], macdSig=[];
+
+  const plotLayout = {
+    margin:{t:30,r:30,b:60,l:60},
+    xaxis:{title:'Hora', rangeslider:{visible:false}},
+    yaxis:{title:'Preço'},
+    yaxis2:{overlaying:'y', side:'right', title:'MACD'},
+    showlegend:true
+  };
+  Plotly.newPlot(chartDiv,[],plotLayout,{responsive:true});
+
+  function redraw(){
+    const candle = { x:times, open:opens, high:highs, low:lows, close:closes, type:'candlestick' };
+    const line5   = { x:times, y:sma5,  mode:'lines', name:'SMA5'  };
+    const line10  = { x:times, y:sma10, mode:'lines', name:'SMA10' };
+    const bbu     = { x:times, y:bbUp,   mode:'lines', name:'BB Up' };
+    const bbm     = { x:times, y:bbMid,  mode:'lines', name:'BB Mid'};
+    const bbd     = { x:times, y:bbDown, mode:'lines', name:'BB Dn' };
+    const macdT   = { x:times, y:macdLine, mode:'lines', name:'MACD',  yaxis:'y2' };
+    const sigT    = { x:times, y:macdSig,  mode:'lines', name:'Signal',yaxis:'y2' };
+    Plotly.react(chartDiv,[candle,line5,line10,bbu,bbm,bbd,macdT,sigT],plotLayout);
+  }
+
+  function updateSignalDisplay(){
+    // exibe no topo
+    signalEl.textContent = latestSignal ? `Sinal: ${latestSignal}` : 'Sem sinal';
+    signalEl.className   = latestSignal==='COMPRA' ? 'buy' : latestSignal==='VENDA' ? 'sell' : '';
+
+    // registra histórico de sinais
+    if(latestSignal){
+      const t = new Date().toLocaleTimeString();
+      signals.unshift({ time:t, side:latestSignal });
+      renderSignals();
+      // notificação navegador
+      if(Notification.permission==='granted'){
+        new Notification(`Sinal: ${latestSignal}`,{ body: justificationEl.textContent });
+      }
+      // envia ao Discord
+      notifyDiscord(`SINAL ${latestSignal}\n${justificationEl.textContent}`);
+    }
+
+    // stop
+    if(entry){
+      const idx = times.length-2;
+      const sp  = entry.side==='COMPRA' ? bbDown[idx] : bbUp[idx];
+      stopEl.textContent = `Stop sugerido: ${sp ? sp.toFixed(2) : '-'}`;
+    } else {
+      stopEl.textContent = 'Stop sugerido: -';
+    }
+  }
+
+  // countdown
+  setInterval(()=>{
+    const now = Date.now(), pr = 15*60e3;
+    const next = Math.ceil(now/pr)*pr;
+    const d = next - now;
+    const m = String(Math.floor(d/60000)).padStart(2,'0');
+    const s = String(Math.floor((d%60000)/1000)).padStart(2,'0');
+    countdownEl.textContent = `Próximo candle em: ${m}:${s}`;
+  },1000);
+
+  // initial fetch + backtest (24h)
+  (async()=>{
+    // backtest simples 24h
+    try{
+      const r = await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=15m&limit=96'),
+            d = await r.json(),
+            C = d.map(x=>+x[4]),
+            T = d.map(x=>new Date(x[0]).toLocaleString());
+      const s5 = calcSMA(C,5), s10=calcSMA(C,10), rs=calcRSI(C,14),
+            [uu,__,dd]=calcBB(C,20,2), [mL,mS]=calcMACD(C,12,26,9);
+      const out = [];
+      for(let i=1;i<C.length;i++){
+        if(s5[i-1]!=null){
+          if(s5[i-1]<=s10[i-1]&& rs[i-1]<70 && C[i-1]>dd[i-1] && mL[i-1]>mS[i-1] && s5[i]>s10[i])
+            out.push(`${T[i]}: COMPRA`);
+          else if(s5[i-1]>=s10[i-1]&&rs[i-1]>30 && C[i-1]<uu[i-1] && mL[i-1]<mS[i-1] && s5[i]<s10[i])
+            out.push(`${T[i]}: VENDA`);
+        }
+      }
+      // podemos exibir se quiser num console ou div separada...
+      console.log('Sinais últimas 24h:', out);
+    }catch{}
+    // preenche 96 candles iniciais
+    try{
+      const r = await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=15m&limit=96'),
+            d = await r.json();
+      d.forEach(x=>{
+        times.push(new Date(x[0]));
+        opens.push(+x[1]);
+        highs.push(+x[2]);
+        lows.push(+x[3]);
+        closes.push(+x[4]);
+      });
+      sma5    = calcSMA(closes,5);
+      sma10   = calcSMA(closes,10);
+      rsiArr  = calcRSI(closes,14);
+      [bbUp, bbMid, bbDown] = calcBB(closes,20,2);
+      [macdLine, macdSig]   = calcMACD(closes,12,26,9);
+      latestPrice = closes.at(-1);
+
+      // sinal inicial
+      const i=closes.length-1, j=i-1;
+      latestSignal = null;
+      if(sma5[j]!=null){
+        if(sma5[j]<=sma10[j] && rsiArr[j]<70 && closes[j]>bbDown[j] && macdLine[j]>macdSig[j] && sma5[i]>sma10[i])
+          latestSignal='COMPRA';
+        else if(sma5[j]>=sma10[j] && rsiArr[j]>30 && closes[j]<bbUp[j] && macdLine[j]<macdSig[j] && sma5[i]<sma10[i])
+          latestSignal='VENDA';
+      }
+      updateSignalDisplay();
+      redraw();
+    }catch{
+      signalEl.textContent = 'Erro ao carregar dados';
+    }
+  })();
+
+  // WebSocket
+  const ws = new WebSocket('wss://fstream.binance.com/ws/btcusdt@kline_15m');
+  ws.onmessage = ev => {
+    const k   = JSON.parse(ev.data).k;
+    const fin = k.x;
+    const idx = times.length - 1;
+
+    if(fin){
+      // vela fechada: shift + push
+      if(times.length >= 96){
+        times.shift(); opens.shift(); highs.shift(); lows.shift(); closes.shift();
+        rsiArr.shift(); bbUp.shift(); bbMid.shift(); bbDown.shift(); macdLine.shift(); macdSig.shift();
+      }
+      times.push(new Date(k.t));
+      opens.push(+k.o); highs.push(+k.h); lows.push(+k.l); closes.push(+k.c);
+
+      // recalcular indicadores
+      sma5    = calcSMA(closes,5);
+      sma10   = calcSMA(closes,10);
+      rsiArr  = calcRSI(closes,14);
+      [bbUp, bbMid, bbDown] = calcBB(closes,20,2);
+      [macdLine, macdSig]   = calcMACD(closes,12,26,9);
+
+      // detectar sinal
+      const ii = closes.length-1, jj=ii-1;
+      latestSignal = null;
+      if(sma5[jj]!=null){
+        if(sma5[jj]<=sma10[jj] && rsiArr[jj]<70 && closes[jj]>bbDown[jj] && macdLine[jj]>macdSig[jj] && sma5[ii]>sma10[ii]){
+          latestSignal='COMPRA';
+          justificationEl.textContent = 'Condição de compra atendida';
+        }
+        else if(sma5[jj]>=sma10[jj] && rsiArr[jj]>30 && closes[jj]<bbUp[jj] && macdLine[jj]<macdSig[jj] && sma5[ii]<sma10[ii]){
+          latestSignal='VENDA';
+          justificationEl.textContent = 'Condição de venda atendida';
         }
       }
 
-      if ('Notification' in window) {
-        await Notification.requestPermission();
-      }
-
-      // === REFERÊNCIAS DOM ===
-      const btnLong    = document.getElementById('btnLong');
-      const btnShort   = document.getElementById('btnShort');
-      const btnExit    = document.getElementById('btnExit');
-      const btnTest    = document.getElementById('btnTest');
-      const btnDiscord = document.getElementById('btnDiscord');
-
-      const entryInfo   = document.getElementById('entryInfo');
-      const signalEl    = document.getElementById('signal');
-      const justifyEl   = document.getElementById('justification');
-      const stopEl      = document.getElementById('stopSuggestion');
-      const resultEl    = document.getElementById('result');
-
-      const backtestEl  = document.getElementById('backtestResult');
-      const signalList  = document.getElementById('signalList');
-      const tradeBody   = document.querySelector('#tradeTable tbody');
-      const countdownEl = document.getElementById('countdown');
-      const chartDiv    = document.getElementById('chart');
-
-      // === STORAGE (fallback para ambientes que não permitam localStorage) ===
-      let storage = { getItem: ()=>null, setItem: ()=>{}, removeItem: ()=>{} };
-      try {
-        localStorage.setItem('_',1);
-        localStorage.removeItem('_');
-        storage = localStorage;
-      } catch {}
-
-      // === VARIÁVEIS DE ESTADO ===
-      let entry = null;
-      try { entry = JSON.parse(storage.getItem('tradeEntry')); } catch {}
-      const trades = [];
-      const signals = [];
-      let latestSignal = null, latestPrice = null;
-
-      // === FUNÇÕES DE RENDERIZAÇÃO ===
-      function updateEntryInfo() {
-        if (entry) {
-          entryInfo.textContent = `Entrada ${entry.side} @ ${entry.price.toFixed(2)}`;
-        } else {
-          entryInfo.textContent = 'Nenhuma entrada marcada';
-        }
-      }
-      updateEntryInfo();
-
-      function renderTrades() {
-        tradeBody.innerHTML = '';
-        trades.forEach(t => {
-          const row = document.createElement('tr');
-          row.innerHTML = `
-            <td>${t.time}</td>
-            <td>${t.side}</td>
-            <td>${t.entry.toFixed(2)}</td>
-            <td>${t.exit.toFixed(2)}</td>
-            <td>${t.profitPct.toFixed(2)}%</td>
-          `;
-          tradeBody.appendChild(row);
-        });
-      }
-
-      function renderSignals() {
-        signalList.innerHTML = '';
-        signals.forEach(s => {
-          const li = document.createElement('li');
-          li.textContent = `${s.time} – ${s.side}`;
-          li.className = s.side === 'COMPRA' ? 'buy' : 'sell';
-          signalList.appendChild(li);
-        });
-      }
-
-      // === CÁLCULO DE INDICADORES ===
-      const calcSMA = (arr, p) => arr.map((v,i,A) =>
-        i < p-1 ? null : A.slice(i-p+1, i+1).reduce((s,x)=>s+x,0)/p);
-
-      function calcRSI(a,p) {
-        const gains=[], losses=[];
-        for(let i=1;i<a.length;i++){
-          const d = a[i] - a[i-1];
-          gains.push(d>0?d:0);
-          losses.push(d<0?Math.abs(d):0);
-        }
-        let avgGain = gains.slice(0,p).reduce((s,v)=>s+v,0)/p;
-        let avgLoss = losses.slice(0,p).reduce((s,v)=>s+v,0)/p;
-        const out = Array(p).fill(null);
-        out[p] = 100 - (100/(1 + avgGain/avgLoss));
-        for(let i=p+1;i<a.length;i++){
-          avgGain = (avgGain*(p-1) + gains[i-1])/p;
-          avgLoss = (avgLoss*(p-1) + losses[i-1])/p;
-          out[i] = 100 - (100/(1 + avgGain/avgLoss));
-        }
-        return out;
-      }
-
-      function calcBB(a,p,k) {
-        const up=[], mid=[], dn=[];
-        for(let i=0;i<a.length;i++){
-          if(i<p-1){
-            up.push(null); mid.push(null); dn.push(null);
-          } else {
-            const slice = a.slice(i-p+1,i+1);
-            const mean = slice.reduce((s,v)=>s+v,0)/p;
-            const std = Math.sqrt(slice.reduce((s,v)=>s+Math.pow(v-mean,2),0)/p);
-            mid.push(mean);
-            up.push(mean + k*std);
-            dn.push(mean - k*std);
-          }
-        }
-        return [up,mid,dn];
-      }
-
-      const calcEMA = (a,p) => {
-        const k = 2/(p+1), out=[];
-        a.forEach((v,i)=> out.push(i? v*k + out[i-1]*(1-k): v));
-        return out;
-      };
-
-      function calcMACD(a, fast, slow, signal) {
-        const emaFast = calcEMA(a,fast);
-        const emaSlow = calcEMA(a,slow);
-        const macdLine = emaFast.map((v,i)=>v - emaSlow[i]);
-        const signalLine = calcEMA(macdLine, signal);
-        return [macdLine, signalLine];
-      }
-
-      // Arrays de dados
-      const times =[], opens=[], highs=[], lows=[], closes=[];
-      let sma5=[], sma10=[], rsiArr=[], bbUp=[], bbMid=[], bbDown=[], macdLine=[], macdSig=[];
-
-      // Layout inicial do Plotly
-      const plotLayout = {
-        margin:{ t:30, r:30, b:60, l:60 },
-        xaxis:{ title:'Hora', rangeslider:{ visible:false } },
-        yaxis:{ title:'Preço' },
-        showlegend:true
-      };
-      Plotly.newPlot(chartDiv, [], plotLayout, { responsive:true });
-
-      function redraw() {
-        const candle = { x:times, open:opens, high:highs, low:lows, close:closes, type:'candlestick' };
-        const t5 = { x:times, y:sma5, type:'scatter', mode:'lines', name:'SMA5' };
-        const t10= { x:times, y:sma10, type:'scatter', mode:'lines', name:'SMA10' };
-        const bbu= { x:times, y:bbUp, mode:'lines', name:'BB Up' };
-        const bbm= { x:times, y:bbMid, mode:'lines', name:'BB Mid' };
-        const bbd= { x:times, y:bbDown,mode:'lines', name:'BB Dn' };
-        const mL = { x:times, y:macdLine,     type:'scatter', mode:'lines', name:'MACD',   yaxis:'y2' };
-        const mS = { x:times, y:macdSig,      type:'scatter', mode:'lines', name:'Signal', yaxis:'y2' };
-        Plotly.react(chartDiv, [candle,t5,t10,bbu,bbm,bbd,mL,mS], Object.assign({}, plotLayout, {
-          yaxis2:{ overlaying:'y', side:'right', title:'MACD' }
-        }));
-      }
-
-      // Exibe sinal, stop e dispara notificações
-      function updateSignalDisplay() {
-        if (!entry && latestSignal) {
-          // exibe no DOM
-          signalEl.textContent = `Sinal: ${latestSignal}`;
-          signalEl.className = latestSignal==='COMPRA'?'buy':'sell';
-          // registra histórico
-          const t = new Date().toLocaleTimeString();
-          signals.unshift({ time:t, side: latestSignal });
-          renderSignals();
-          // disparo browser
-          if (Notification.permission==='granted') {
-            new Notification(`Sinal: ${latestSignal}`, { body: justifyEl.textContent });
-          }
-          // disparo Discord
-          notifyDiscord(`SINAL ${latestSignal}\n${justifyEl.textContent}`);
-        }
-        if (!latestSignal) {
-          signalEl.textContent = 'Sem sinal';
-          signalEl.className = '';
-        }
-        // stop suggestion
-        if (entry) {
-          const idx = times.length - 2;
-          const sp = entry.side==='COMPRA'? bbDown[idx] : bbUp[idx];
-          stopEl.textContent = `Stop sugerido: ${sp? sp.toFixed(2) : '-'}`;
-        } else {
-          stopEl.textContent = 'Stop sugerido: -';
-        }
-      }
-
-      // contador regressivo
-      setInterval(()=>{
-        const now=Date.now(),
-              period=15*60e3,
-              next=Math.ceil(now/period)*period,
-              d=next-now,
-              m=Math.floor(d/6e4).toString().padStart(2,'0'),
-              s=Math.floor((d%6e4)/1e3).toString().padStart(2,'0');
-        countdownEl.textContent = `Próximo candle em: ${m}:${s}`;
-      },1000);
-
-      // backtest 24h
-      async function backtest24h() {
-        backtestEl.textContent = 'Verificando últimos 24h...';
-        try {
-          const resp = await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=15m&limit=96');
-          const data = await resp.json();
-          const T=[], C=[];
-          data.forEach(x=>{ T.push(new Date(x[0]).toLocaleString()); C.push(+x[4]); });
-          const s5 = calcSMA(C,5), s10 = calcSMA(C,10),
-                rs = calcRSI(C,14), [u,_,d] = calcBB(C,20,2),
-                [mcd,ms] = calcMACD(C,12,26,9),
-                out = [];
-          for(let i=1;i<C.length;i++){
-            if (s5[i-1]!=null) {
-              if (s5[i-1]<=s10[i-1] && rs[i-1]<70 && C[i-1]>d[i-1] && mcd[i-1]>ms[i-1] && s5[i]>s10[i]) {
-                out.push(`${T[i]}: COMPRA`);
-              } else if (s5[i-1]>=s10[i-1] && rs[i-1]>30 && C[i-1]<u[i-1] && mcd[i-1]<ms[i-1] && s5[i]<s10[i]) {
-                out.push(`${T[i]}: VENDA`);
-              }
-            }
-          }
-          backtestEl.textContent = out.length
-            ? `Sinais últimas 24h:\n${out.join('\n')}`
-            : 'Nenhum sinal';
-        } catch {
-          backtestEl.textContent = 'Erro ao verificar';
-        }
-      }
-      await backtest24h();
-
-      // fetch inicial e websocket
-      try {
-        const resp = await fetch('https://fapi.binance.com/fapi/v1/klines?symbol=BTCUSDT&interval=15m&limit=96');
-        const data = await resp.json();
-        data.forEach(x=>{
-          times.push(new Date(x[0]));
-          opens.push(+x[1]); highs.push(+x[2]);
-          lows.push(+x[3]); closes.push(+x[4]);
-        });
-        sma5    = calcSMA(closes,5);
-        sma10   = calcSMA(closes,10);
-        rsiArr  = calcRSI(closes,14);
-        [bbUp, bbMid, bbDown] = calcBB(closes,20,2);
-        [macdLine,macdSig]    = calcMACD(closes,12,26,9);
-        latestPrice = closes.at(-1);
-        // sinal inicial
-        const i = closes.length-1, j = i-1;
-        if (sma5[j]!=null) {
-          if (sma5[j]<=sma10[j] && rsiArr[j]<70 && closes[j]>bbDown[j] && macdLine[j]>macdSig[j] && sma5[i]>sma10[i]) {
-            latestSignal = 'COMPRA';
-          } else if (sma5[j]>=sma10[j] && rsiArr[j]>30 && closes[j]<bbUp[j] && macdLine[j]<macdSig[j] && sma5[i]<sma10[i]) {
-            latestSignal = 'VENDA';
-          }
-        }
+      // exibir e notificar **apenas aqui**
+      if(!entry){
         updateSignalDisplay();
-        redraw();
-      } catch {
-        signalEl.textContent = 'Erro ao carregar dados';
       }
+      redraw();
+    } else {
+      // vela ainda não fechou: só atualiza candlestick em tempo real
+      times[idx]   = new Date(k.t);
+      opens[idx]   = +k.o;
+      highs[idx]   = +k.h;
+      lows[idx]    = +k.l;
+      closes[idx]  = +k.c;
+      redraw();
+    }
+  };
 
-      // WebSocket pra atualizar em tempo real
-      const ws = new WebSocket('wss://fstream.binance.com/ws/btcusdt@kline_15m');
-      ws.onmessage = ev => {
-        const k = JSON.parse(ev.data).k;
-        const idx = times.length-1;
-        if (k.x) {
-          // candle fechado: shift + push
-          if (times.length>=96) {
-            times.shift(); opens.shift(); highs.shift();
-            lows.shift(); closes.shift();
-            rsiArr.shift(); bbUp.shift(); bbMid.shift(); bbDown.shift();
-            macdLine.shift(); macdSig.shift();
-          }
-          times.push(new Date(k.t));
-          opens.push(+k.o); highs.push(+k.h);
-          lows.push(+k.l); closes.push(+k.c);
-        } else {
-          // candle em formação
-          times[idx]   = new Date(k.t);
-          opens[idx]   = +k.o;
-          highs[idx]   = +k.h;
-          lows[idx]    = +k.l;
-          closes[idx]  = +k.c;
-        }
-        latestPrice = +k.c;
-        // recalcula indicadores
-        sma5    = calcSMA(closes,5);
-        sma10   = calcSMA(closes,10);
-        rsiArr  = calcRSI(closes,14);
-        [bbUp, bbMid, bbDown] = calcBB(closes,20,2);
-        [macdLine, macdSig]   = calcMACD(closes,12,26,9);
-        // sinal em tempo real
-        const ii = closes.length-1, jj = ii-1;
-        latestSignal = null;
-        if (sma5[jj]!=null) {
-          if (sma5[jj]<=sma10[jj] && rsiArr[jj]<70 && closes[jj]>bbDown[jj] && macdLine[jj]>macdSig[jj] && sma5[ii]>sma10[ii]) {
-            latestSignal = 'COMPRA';
-          } else if (sma5[jj]>=sma10[jj] && rsiArr[jj]>30 && closes[jj]<bbUp[jj] && macdLine[jj]<macdSig[jj] && sma5[ii]<sma10[ii]) {
-            latestSignal = 'VENDA';
-          }
-        }
-        if (!entry) updateSignalDisplay();
-        redraw();
-      };
-
-      // === CONTROLES DE ENTRADA/SAÍDA ===
-      btnLong.onclick  = () => {
-        // se já houver posição, fecha ela e abre OPPOSTA
-        if (entry && entry.side==='VENDA') {
-          // fecha SELL
-          const profit = (entry.price - latestPrice) / entry.price;
-          const pct    = profit*100;
-          trades.push({ time:new Date().toLocaleTimeString(), side:entry.side, entry:entry.price, exit:latestPrice, profitPct:pct });
-          renderTrades();
-          notifyDiscord(`FECHOU SELL @${latestPrice.toFixed(2)} (${pct.toFixed(2)}%)`);
-        }
-        entry = { side:'COMPRA', price: latestPrice };
-        storage.setItem('tradeEntry', JSON.stringify(entry));
-        updateEntryInfo();
-        updateSignalDisplay();
-        notifyDiscord(`ABRIU BUY @${latestPrice.toFixed(2)}`);
-      };
-
-      btnShort.onclick = () => {
-        if (entry && entry.side==='COMPRA') {
-          // fecha BUY
-          const profit = (latestPrice - entry.price) / entry.price;
-          const pct    = profit*100;
-          trades.push({ time:new Date().toLocaleTimeString(), side:entry.side, entry:entry.price, exit:latestPrice, profitPct:pct });
-          renderTrades();
-          notifyDiscord(`FECHOU BUY @${latestPrice.toFixed(2)} (${pct.toFixed(2)}%)`);
-        }
-        entry = { side:'VENDA', price: latestPrice };
-        storage.setItem('tradeEntry', JSON.stringify(entry));
-        updateEntryInfo();
-        updateSignalDisplay();
-        notifyDiscord(`ABRIU SELL @${latestPrice.toFixed(2)}`);
-      };
-
-      btnExit.onclick = () => {
-        if (!entry) return;
-        const profit = entry.side==='COMPRA'
-                     ? (latestPrice - entry.price)/entry.price
-                     : (entry.price - latestPrice)/entry.price;
-        const pct = profit*100;
-        resultEl.textContent = `Você ${profit>=0?'ganhou':'perdeu'} ${Math.abs(pct).toFixed(2)}%`;
-        trades.push({
-          time: new Date().toLocaleTimeString(),
-          side: entry.side,
-          entry: entry.price,
-          exit: latestPrice,
-          profitPct: pct
-        });
-        renderTrades();
-        notifyDiscord(`SAIU ${entry.side} @${latestPrice.toFixed(2)} (${pct.toFixed(2)}%)`);
-        entry = null;
-        storage.removeItem('tradeEntry');
-        updateEntryInfo();
-        updateSignalDisplay();
-      };
-
-      // Teste de browser notification
-      btnTest.onclick = () => {
-        if (Notification.permission==='granted') {
-          new Notification('Teste de Notificação', { body: 'Notificação de teste enviada!' });
-        } else {
-          Notification.requestPermission().then(p => {
-            if (p==='granted') {
-              new Notification('Teste de Notificação', { body: 'Permissão concedida!' });
-            } else {
-              alert('Notificações negadas.');
-            }
-          });
-        }
-      };
-
-      // Teste de Discord
-      btnDiscord.onclick = () => {
-        notifyDiscord(`Mensagem de teste via Discord — ${new Date().toLocaleString()}`);
-      };
-
-    })();
+  // botões
+  btnLong.onclick = ()=>{
+    entry = { side:'COMPRA', price: latestPrice };
+    storage.setItem('tradeEntry', JSON.stringify(entry));
+    updateEntryInfo();
+    updateSignalDisplay();
+  };
+  btnShort.onclick = ()=>{
+    entry = { side:'VENDA', price: latestPrice };
+    storage.setItem('tradeEntry', JSON.stringify(entry));
+    updateEntryInfo();
+    updateSignalDisplay();
+  };
+  btnExit.onclick = ()=>{
+    if(!entry) return;
+    const profit = entry.side==='COMPRA'
+      ? (latestPrice-entry.price)/entry.price
+      : (entry.price-latestPrice)/entry.price;
+    const pct = profit*100;
+    resultEl.textContent = `Você ${profit>=0?'ganhou':'perdeu'} ${Math.abs(pct).toFixed(2)}%`;
+    trades.push({
+      time: new Date().toLocaleTimeString(),
+      side: entry.side,
+      entry: entry.price,
+      exit : latestPrice,
+      profitPct: pct
+    });
+    renderTrades();
+    entry = null;
+    storage.removeItem('tradeEntry');
+    updateEntryInfo();
+    updateSignalDisplay();
+  };
+  btnTest.onclick = ()=>{
+    if(Notification.permission==='granted'){
+      new Notification('Teste de Notificação',{ body:'Teste OK!' });
+    } else {
+      Notification.requestPermission();
+    }
+  };
+  btnDiscord.onclick = ()=>{
+    notifyDiscord('Teste de Discord!');
+  };
   </script>
 </body>
 </html>
