@@ -76,7 +76,7 @@
   window.addEventListener('error', e=>{ if(e.message.includes('storage')) e.preventDefault(); });
 
   // -- Discord webhook
-  const discordWebhook = 'https://discord.com/api/webhooks/1373378771716935781/KNHwIWA-sanRYKL_a9EeTP7Utt2uTFCdUbEXO22nHGeK6c4YlZ8HWfeIL_Ys-mJyFH0h';
+  const discordWebhook = '';
   async function notifyDiscord(msg){
     try {
       const res = await fetch(discordWebhook, {
